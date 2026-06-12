@@ -2,42 +2,41 @@
 word_freq_heap.py
 ==================
 
-Counts word frequencies in a TXT file and prints them sorted:
+Bir TXT dosyasındaki kelime frekanslarını sayar ve şu şekilde sıralı yazdırır:
 
-    1. Alphabetically by the FIRST LETTER of the word (A -> Z), then
-    2. For words that share the same first letter, by FREQUENCY,
-       descending (highest count first).
+    1. Önce kelimenin İLK HARFİNE göre alfabetik olarak (A -> Z), ardından
+    2. Aynı ilk harfe sahip kelimeler için FREKANSA (tekrar sayısına) göre
+       azalan sırada (en yüksek sayı önce).
 
-The entire ordering above is produced by ONE hand-written binary heap
-(class `DualKeyHeap` below), ordered by exactly the two keys required
-by the assignment:
+Yukarıdaki sıralamanın tamamı, ödevin gerektirdiği tam olarak iki anahtara
+göre sıralama yapan, elle yazılmış TEK BİR ikili (binary) heap (aşağıdaki
+`DualKeyHeap` sınıfı) tarafından üretilir:
 
-    PRIMARY KEY   : first letter of the word   -> ascending  (A < B < ... < Z)
-    SECONDARY KEY : occurrence count of word    -> descending (used ONLY to
-                                                    break ties between words
-                                                    that share the same
-                                                    first letter)
+    BİRİNCİL ANAHTAR : kelimenin ilk harfi      -> artan sıra (A < B < ... < Z)
+    İKİNCİL ANAHTAR  : kelimenin tekrar sayısı  -> azalan sıra (SADECE aynı
+                                                    ilk harfe sahip kelimeler
+                                                    arasındaki eşitlikleri
+                                                    bozmak için kullanılır)
 
-No `heapq`, `sorted()`, `PriorityQueue`, or any other built-in
-priority-queue / sorting utility is used to build or order the heap.
-The heap is a plain Python list used as an array-based binary tree,
-exactly like the classic textbook heap.
+Heap'i oluşturmak veya sıralamak için `heapq`, `sorted()`, `PriorityQueue`
+veya başka herhangi bir hazır öncelik kuyruğu / sıralama aracı KULLANILMAZ.
+Heap, klasik ders kitabı heap'i gibi, dizi (array) tabanlı bir ikili ağaç
+olarak kullanılan sade bir Python listesidir.
 
-For the full write-up (algorithm explanation, complexity analysis,
-worked example with the Kocaeli/Konya/... input, and edge cases) see
-REPORT.md.
+Algoritmanın tam açıklaması, karmaşıklık analizi, Kocaeli/Konya/... girdisiyle
+çözülmüş örnek ve uç durumlar için REPORT.md dosyasına bakın.
 
-USAGE
------
-    python word_freq_heap.py <path_to_file.txt>            normal run
-    python word_freq_heap.py <path_to_file.txt> --debug    show heap state
-                                                            after every word
-    python word_freq_heap.py --demo                        run the built-in
-                                                            Kocaeli/Konya/...
-                                                            walkthrough from
-                                                            the assignment
-    python word_freq_heap.py                               prompts for a
-                                                            file path
+KULLANIM
+--------
+    python word_freq_heap.py <dosya_yolu.txt>            normal çalıştırma
+    python word_freq_heap.py <dosya_yolu.txt> --debug    her kelimeden sonra
+                                                          heap durumunu gösterir
+    python word_freq_heap.py --demo                      ödevdeki
+                                                          Kocaeli/Konya/...
+                                                          örneğini adım adım
+                                                          çalıştırır
+    python word_freq_heap.py                             dosya yolu sormak
+                                                          için
 """
 
 from __future__ import annotations
@@ -46,18 +45,24 @@ import argparse
 import re
 import sys
 
+# Windows'taki varsayılan konsol kod sayfası (örn. cp1252) Türkçe
+# karakterleri (ı, ş, ğ, ç, ö, ü, İ) içermez ve print() sırasında
+# UnicodeEncodeError fırlatır; çıkışı UTF-8'e zorlayarak bunu önlüyoruz.
+sys.stdout.reconfigure(encoding="utf-8")
+
 
 # ======================================================================
 #  WordNode
 # ======================================================================
 class WordNode:
     """
-    One element stored in the heap: a normalized word and how many
-    times it has been seen so far.
+    Heap içinde saklanan tek bir eleman: normalize edilmiş bir kelime ve
+    o kelimenin şimdiye kadar kaç kez görüldüğü.
 
-    Using a tiny class (instead of a bare list/tuple) makes the heap
-    code below read like "node.word" / "node.count" instead of
-    "node[0]" / "node[1]", which is much easier to follow.
+    Düz bir liste/demet (list/tuple) yerine küçük bir sınıf kullanmak,
+    aşağıdaki heap kodunun "node[0]" / "node[1]" yerine "node.word" /
+    "node.count" şeklinde okunmasını sağlar; bu da kodu takip etmeyi
+    çok daha kolay hale getirir.
     """
 
     __slots__ = ("word", "count")
@@ -71,113 +76,114 @@ class WordNode:
 
 
 # ======================================================================
-#  DualKeyHeap  -- the custom heap required by the assignment
+#  DualKeyHeap  -- ödevin gerektirdiği özel heap
 # ======================================================================
 class DualKeyHeap:
     """
-    A binary heap, stored as a plain Python list (array-based, exactly
-    like the classic textbook heap: the children of index ``i`` live
-    at ``2*i + 1`` and ``2*i + 2``, and the parent of ``i`` lives at
-    ``(i - 1) // 2``).
+    Sade bir Python listesi olarak saklanan bir ikili (binary) heap
+    (dizi tabanlı, tam olarak klasik ders kitabı heap'i gibi: ``i``
+    indeksinin çocukları ``2*i + 1`` ve ``2*i + 2`` konumlarında,
+    ``i``'nin ebeveyni de ``(i - 1) // 2`` konumunda yer alır).
 
-    ORDERING RULE ("dual key")
-    ---------------------------
-    The node that sits closer to the root is the one with HIGHER
-    PRIORITY, defined as:
+    SIRALAMA KURALI ("çift anahtar / dual key")
+    --------------------------------------------
+    Köke daha yakın oturan düğüm, ÖNCELİĞİ DAHA YÜKSEK olan düğümdür.
+    Bu öncelik şöyle tanımlanır:
 
-        1. The node whose word's FIRST LETTER is alphabetically
-           smaller (A beats B beats C ... beats Z).
-        2. If both nodes start with the SAME letter, the node with the
-           LARGER occurrence COUNT wins.
+        1. Kelimesinin İLK HARFİ alfabetik olarak daha küçük olan
+           düğüm (A, B'yi yener; B, C'yi yener; ... Z'ye kadar).
+        2. Eğer iki düğüm de AYNI harfle başlıyorsa, tekrar SAYISI
+           DAHA BÜYÜK olan düğüm kazanır.
 
-    Because of this rule, repeatedly removing the root of the heap
-    (``extract_top``) yields nodes in EXACTLY the order the assignment
-    asks for as final output: A -> Z, and for ties on the first
-    letter, highest count -> lowest count.
+    Bu kural sayesinde, heap'in kökünü tekrar tekrar kaldırmak
+    (``extract_top``) düğümleri ödevin istediği nihai çıktı sırasıyla,
+    yani A -> Z şeklinde ve ilk harfte eşitlik olduğunda en yüksek
+    sayıdan en düşüğe doğru verir.
 
-    FAST "ALREADY EXISTS?" LOOKUP
-    ------------------------------
-    A plain heap can only tell you about its root in O(1); finding an
-    arbitrary word would normally take O(n). To satisfy the
-    requirement "before inserting a word, check whether it already
-    exists, and if so increment + re-heapify", this heap keeps a side
-    dictionary ``self._index`` mapping ``word -> position in the
-    array``. Every time two nodes are swapped, both of their entries
-    in ``self._index`` are updated, so the dictionary always reflects
-    the true position of every word. This turns the existence check
-    and the "find the node to update" step into O(1) operations.
+    HIZLI "ZATEN VAR MI?" SORGUSU
+    --------------------------------
+    Sade bir heap, O(1) zamanda yalnızca kökü hakkında bilgi verebilir;
+    rastgele bir kelimeyi bulmak normalde O(n) sürer. "Bir kelimeyi
+    eklemeden önce zaten var olup olmadığını kontrol et, varsa sayısını
+    artır ve heap'i yeniden düzenle" gereksinimini karşılamak için bu
+    heap, ``word -> dizideki konum`` eşlemesini tutan yardımcı bir
+    ``self._index`` sözlüğü kullanır. İki düğüm her yer değiştirdiğinde,
+    ``self._index`` içindeki ilgili iki kayıt da güncellenir; böylece
+    sözlük her zaman her kelimenin gerçek konumunu yansıtır. Bu sayede
+    "var mı?" kontrolü ve "güncellenecek düğümü bul" adımı O(1) işlemlere
+    dönüşür.
     """
 
     def __init__(self) -> None:
-        # The heap itself: array-based binary tree of WordNode objects.
+        # Heap'in kendisi: WordNode nesnelerinden oluşan, dizi tabanlı ikili ağaç.
         self._data: list[WordNode] = []
 
-        # word -> index of that word's node inside self._data.
-        # Kept in sync on every swap so we can find any word in O(1).
+        # word -> bu kelimenin düğümünün self._data içindeki indeksi.
+        # Her yer değiştirmede güncel tutulur, böylece her kelimeyi O(1)'de buluruz.
         self._index: dict[str, int] = {}
 
     # ------------------------------------------------------------------
-    # Basic introspection
+    # Temel sorgulama metotları
     # ------------------------------------------------------------------
     def __len__(self) -> int:
         return len(self._data)
 
     def is_empty(self) -> bool:
-        """Return True if the heap currently holds no words."""
+        """Heap şu anda hiç kelime içermiyorsa True döner."""
         return len(self._data) == 0
 
     def contains(self, word: str) -> bool:
-        """Return True if ``word`` already has a node in the heap."""
+        """``word`` heap içinde zaten bir düğüme sahipse True döner."""
         return word in self._index
 
     def to_list(self) -> list[tuple[str, int]]:
         """
-        Return a snapshot of the heap's underlying array as a list of
-        ``(word, count)`` tuples, in array order (index 0 = root).
-        Useful for debugging / printing.
+        Heap'in alttaki dizisinin anlık görüntüsünü ``(word, count)``
+        demetlerinden oluşan bir liste olarak, dizi sırasıyla (0. indeks
+        = kök) döndürür. Hata ayıklama / yazdırma için kullanışlıdır.
         """
         return [(node.word, node.count) for node in self._data]
 
     # ------------------------------------------------------------------
-    # The dual-key comparison: this single method encodes BOTH keys.
+    # Çift anahtar karşılaştırması: bu tek metot HER İKİ anahtarı da kodlar.
     # ------------------------------------------------------------------
     def _has_priority(self, i: int, j: int) -> bool:
         """
-        Return True if the node at index ``i`` has STRICTLY HIGHER
-        priority than the node at index ``j``, i.e. ``i`` is allowed
-        to sit closer to the root than ``j``.
+        ``i`` indeksindeki düğümün önceliği ``j`` indeksindeki düğümden
+        KESİN OLARAK DAHA YÜKSEKSE True döner; yani ``i``, köke ``j``'den
+        daha yakın oturmaya hak kazanır.
 
-        Dual-key rule:
-          - PRIMARY:   smaller first letter  -> higher priority
-          - SECONDARY: (only if first letters are equal) larger count
-                       -> higher priority
+        Çift anahtar (dual-key) kuralı:
+          - BİRİNCİL  : ilk harfi daha küçük olan -> önceliği daha yüksek
+          - İKİNCİL   : (sadece ilk harfler eşitse) sayısı daha büyük
+                        olan -> önceliği daha yüksek
         """
         a, b = self._data[i], self._data[j]
 
         letter_a, letter_b = a.word[0], b.word[0]
         if letter_a != letter_b:
-            # Primary key: alphabetical order, A is "smallest" (root-most).
+            # Birincil anahtar: alfabetik sıra, A en "küçük" (köke en yakın) harftir.
             return letter_a < letter_b
 
-        # Same first letter -> secondary key decides: higher count wins.
+        # İlk harfler aynı -> ikincil anahtar belirler: sayısı büyük olan kazanır.
         return a.count > b.count
 
     # ------------------------------------------------------------------
-    # Internal helpers: swap + sift (a.k.a. heapify) up / down
+    # Dahili yardımcılar: swap + sift (heapify) yukarı / aşağı
     # ------------------------------------------------------------------
     def _swap(self, i: int, j: int) -> None:
-        """Swap two nodes in the array AND keep self._index in sync."""
+        """Dizideki iki düğümü yer değiştirir VE self._index'i güncel tutar."""
         self._data[i], self._data[j] = self._data[j], self._data[i]
         self._index[self._data[i].word] = i
         self._index[self._data[j].word] = j
 
     def _sift_up(self, i: int) -> None:
         """
-        Move the node at index ``i`` UP the tree while it has higher
-        priority than its parent. This is the standard
-        "bubble up" step used both for brand-new nodes (appended at
-        the end of the array) and for existing nodes whose count just
-        increased.
+        ``i`` indeksindeki düğümü, ebeveyninden daha yüksek önceliğe
+        sahip olduğu sürece ağaçta YUKARI taşır. Bu, hem dizinin sonuna
+        eklenen yepyeni düğümler hem de sayısı az önce artırılan mevcut
+        düğümler için kullanılan standart "yukarı kabarcıklanma"
+        (bubble up) adımıdır.
         """
         while i > 0:
             parent = (i - 1) // 2
@@ -189,10 +195,10 @@ class DualKeyHeap:
 
     def _sift_down(self, i: int) -> None:
         """
-        Move the node at index ``i`` DOWN the tree, repeatedly swapping
-        it with whichever child has the higher priority, until both of
-        its children have lower (or equal) priority. Used after the
-        root is removed and replaced by the last element in the array.
+        ``i`` indeksindeki düğümü, her iki çocuğu da daha düşük (veya eşit)
+        önceliğe sahip olana kadar, önceliği daha yüksek olan çocuğuyla
+        tekrar tekrar yer değiştirerek ağaçta AŞAĞI taşır. Kök kaldırıldıktan
+        ve dizinin son elemanıyla değiştirildikten sonra kullanılır.
         """
         n = len(self._data)
         while True:
@@ -211,26 +217,27 @@ class DualKeyHeap:
             i = best
 
     # ------------------------------------------------------------------
-    # Public operation #1: insert a new word OR bump an existing one
+    # Genel işlem #1: yeni bir kelime ekle VEYA mevcut olanı artır
     # ------------------------------------------------------------------
     def insert_or_increment(self, word: str) -> None:
         """
-        Process one word read from the file.
+        Dosyadan okunan bir kelimeyi işler.
 
-          * If the word is ALREADY in the heap: increment its count
-            and re-heapify (sift up) so the heap property is restored.
-          * If the word is NOT yet in the heap: insert it as a new
-            leaf with count = 1, then sift it up into place.
+          * Kelime heap'te ZATEN VARSA: sayısını bir artırır ve heap
+            özelliğinin yeniden sağlanması için yeniden heapify eder
+            (yukarı kabarcıklandırır - sift up).
+          * Kelime heap'te HENÜZ YOKSA: count = 1 olan yeni bir yaprak
+            (leaf) olarak ekler, ardından doğru konumuna kabarcıklandırır.
 
-        NOTE on why only `_sift_up` is needed for an increment:
-        Increasing a node's count can never DECREASE its priority
-        (the dual-key rule only ever compares counts between nodes
-        that already share the same first letter, and a higher count
-        is always >= as good as a lower one). Since the heap was valid
-        *before* the increment, the only possible violation afterwards
-        is "this node now deserves to be HIGHER than its parent" -
-        which is exactly what `_sift_up` fixes. A `_sift_down` can
-        never be required.
+        Artırma işleminde neden SADECE `_sift_up`'ın yeterli olduğuna dair not:
+        Bir düğümün sayısını artırmak, önceliğini ASLA DÜŞÜREMEZ (çift
+        anahtar kuralı, sayıları yalnızca aynı ilk harfe sahip düğümler
+        arasında karşılaştırır ve daha yüksek bir sayı her zaman daha
+        düşük bir sayıdan en az o kadar iyidir). Heap, artırmadan *önce*
+        geçerli olduğu için, sonrasında ortaya çıkabilecek tek ihlal "bu
+        düğüm artık ebeveyninden DAHA YÜKSEKTE olmayı hak ediyor" şeklinde
+        olabilir - bu da tam olarak `_sift_up`'ın düzelttiği durumdur.
+        `_sift_down`'a asla gerek kalmaz.
         """
         if word in self._index:
             i = self._index[word]
@@ -243,20 +250,20 @@ class DualKeyHeap:
             self._sift_up(i)
 
     # ------------------------------------------------------------------
-    # Public operation #2: remove and return the highest-priority node
+    # Genel işlem #2: en yüksek öncelikli düğümü kaldır ve döndür
     # ------------------------------------------------------------------
     def extract_top(self) -> WordNode:
         """
-        Remove and return the node currently at the root (the node
-        with the highest priority under the dual-key rule).
+        Şu anda kökte bulunan düğümü (çift anahtar kuralına göre önceliği
+        en yüksek olan düğümü) heap'ten kaldırır ve döndürür.
 
-        Repeatedly calling this until the heap is empty yields nodes
-        in exactly the order required by the assignment:
-            A -> Z by first letter, and for ties on the first letter,
-            highest count -> lowest count.
+        Heap boşalana kadar bu işlem tekrarlandığında, düğümler ödevin
+        istediği sırayla gelir:
+            ilk harfe göre A -> Z, ve ilk harfte eşitlik olduğunda
+            en yüksek sayıdan en düşüğe.
         """
         if not self._data:
-            raise IndexError("extract_top() called on an empty heap")
+            raise IndexError("extract_top() boş bir heap üzerinde çağrıldı")
 
         top = self._data[0]
         last = self._data.pop()
@@ -270,23 +277,23 @@ class DualKeyHeap:
         return top
 
     # ------------------------------------------------------------------
-    # Debug / visualization helpers
+    # Hata ayıklama / görselleştirme yardımcıları
     # ------------------------------------------------------------------
     def print_array(self) -> None:
-        """Print the heap's underlying array, e.g. [Adana(2), Konya(2), ...]."""
+        """Heap'in alttaki dizisini yazdırır, örn. [Adana(2), Konya(2), ...]."""
         print("    array: [" + ", ".join(repr(n) for n in self._data) + "]")
 
     def print_tree(self) -> None:
         """
-        Pretty-print the heap as an ASCII tree, root at the top,
-        children indented underneath with branch connectors.
+        Heap'i, kök en üstte ve çocukları dal bağlantılarıyla altına
+        girintilenmiş şekilde ASCII bir ağaç olarak güzelce yazdırır.
 
-        Plain ASCII characters ("+--", "`--", "|") are used (instead
-        of Unicode box-drawing characters) so the output displays
-        correctly in any terminal/console encoding.
+        Herhangi bir terminal/konsol kodlamasında doğru görüntülenmesi
+        için Unicode kutu çizim karakterleri yerine düz ASCII karakterleri
+        ("+--", "`--", "|") kullanılır.
         """
         if not self._data:
-            print("    (empty heap)")
+            print("    (heap boş)")
             return
         print("    " + repr(self._data[0]))
         self._print_children(0, "    ")
@@ -303,37 +310,37 @@ class DualKeyHeap:
 
 
 # ======================================================================
-#  Text processing helpers
+#  Metin işleme yardımcıları
 # ======================================================================
 def extract_words(text: str) -> list[str]:
     """
-    Turn raw file contents into a list of normalized words, in the
-    order they appear.
+    Ham dosya içeriğini, göründükleri sırayla normalize edilmiş
+    kelimelerden oluşan bir listeye dönüştürür.
 
-    Normalization rules:
-      - Everything is lower-cased, so "Ankara", "ankara" and "ANKARA"
-        all become the same word.
-      - Punctuation, digits, whitespace and any other non-letter
-        characters are treated as separators and discarded: a "word"
-        is defined as a maximal run of Unicode letter characters.
-        e.g. "Adana," / "(adana)" / "adana!" / "ADANA" all become
-        "adana"; "word2vec" becomes the two words "word" and "vec".
+    Normalizasyon kuralları:
+      - Her şey küçük harfe çevrilir, böylece "Ankara", "ankara" ve
+        "ANKARA" hepsi aynı kelime haline gelir.
+      - Noktalama işaretleri, rakamlar, boşluklar ve harf olmayan diğer
+        tüm karakterler ayraç (separator) olarak kabul edilir ve
+        atılır: bir "kelime", art arda gelen Unicode harf
+        karakterlerinin en uzun dizisi olarak tanımlanır. Örn.
+        "Adana," / "(adana)" / "adana!" / "ADANA" hepsi "adana" olur;
+        "word2vec" ise "word" ve "vec" şeklinde iki kelimeye dönüşür.
     """
     return re.findall(r"[^\W\d_]+", text.lower(), flags=re.UNICODE)
 
 
 # ======================================================================
-#  Driver: build the heap from a word stream, with optional debug trace
+#  Sürücü (driver): kelime akışından heap'i oluşturur, isteğe bağlı debug izi ile
 # ======================================================================
 def build_heap(words: list[str], debug: bool = False) -> DualKeyHeap:
     """
-    Feed every word into a fresh DualKeyHeap, one at a time, exactly as
-    described by the assignment ("the heap must be updated after
-    reading EVERY word from the file").
+    Ödevin tarif ettiği şekilde ("heap, dosyadan okunan HER kelimeden
+    sonra güncellenmelidir"), her kelimeyi tek tek yepyeni bir
+    DualKeyHeap'e besler.
 
-    If ``debug`` is True, the heap's array and tree representation are
-    printed after each word is processed, so the step-by-step
-    behaviour can be inspected.
+    ``debug`` True ise, her kelime işlendikten sonra heap'in dizi ve
+    ağaç gösterimi yazdırılır; böylece adım adım davranış incelenebilir.
     """
     heap = DualKeyHeap()
 
@@ -341,7 +348,7 @@ def build_heap(words: list[str], debug: bool = False) -> DualKeyHeap:
         heap.insert_or_increment(word)
 
         if debug:
-            print(f"Step {step}: read '{word}'")
+            print(f"Adım {step}: okunan kelime '{word}'")
             heap.print_array()
             heap.print_tree()
             print()
@@ -351,17 +358,17 @@ def build_heap(words: list[str], debug: bool = False) -> DualKeyHeap:
 
 def print_results(heap: DualKeyHeap) -> None:
     """
-    Drain the heap with repeated extract_top() calls and print a
-    formatted (word, count) table. Because of the dual-key heap
-    ordering, the words come out already sorted A->Z, and (for equal
-    first letters) highest count -> lowest count - no extra sorting
-    step is needed.
+    Heap'i tekrar tekrar extract_top() çağrılarıyla boşaltır ve
+    biçimlendirilmiş bir (kelime, sayı) tablosu yazdırır. Çift anahtar
+    heap sıralaması sayesinde kelimeler zaten A->Z sırayla ve (ilk
+    harfler eşitse) en yüksek sayıdan en düşüğe doğru gelir - ek bir
+    sıralama adımına gerek yoktur.
     """
     if heap.is_empty():
-        print("(no words found)")
+        print("(kelime bulunamadı)")
         return
 
-    print(f"{'Word':<20}{'Count':>6}")
+    print(f"{'Kelime':<20}{'Sayı':>6}")
     print("-" * 26)
     while not heap.is_empty():
         node = heap.extract_top()
@@ -369,23 +376,23 @@ def print_results(heap: DualKeyHeap) -> None:
 
 
 # ======================================================================
-#  Demo mode: the worked example from the assignment description
+#  Demo modu: ödev açıklamasındaki çözülmüş örnek
 # ======================================================================
 DEMO_WORDS = ["Kocaeli", "Konya", "Van", "Ankara", "Konya", "Sivas", "Adana", "Adana"]
 
 
 def run_demo() -> None:
     """
-    Run the exact worked example given in the assignment:
+    Ödevde verilen, çözülmüş örneği tam olarak çalıştırır:
 
         Kocaeli, Konya, Van, Ankara, Konya, Sivas, Adana, Adana
 
-    printing the heap's array + tree representation after every single
-    word, then the final sorted result.
+    Her kelimeden sonra heap'in dizi + ağaç gösterimini, ardından nihai
+    sıralanmış sonucu yazdırır.
     """
     print("=" * 60)
-    print("DEMO: dual-key heap, step by step")
-    print("Input words:", ", ".join(DEMO_WORDS))
+    print("DEMO: çift anahtarlı (dual-key) heap, adım adım")
+    print("Girdi kelimeleri:", ", ".join(DEMO_WORDS))
     print("=" * 60)
     print()
 
@@ -393,38 +400,38 @@ def run_demo() -> None:
     heap = build_heap(words, debug=True)
 
     print("=" * 60)
-    print("FINAL RESULT (extracted from the heap, A->Z, count desc.)")
+    print("NİHAİ SONUÇ (heap'ten çıkarıldı, A->Z, sayı azalan)")
     print("=" * 60)
     print_results(heap)
 
 
 # ======================================================================
-#  Main entry point
+#  Ana giriş noktası
 # ======================================================================
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Count word frequencies in a TXT file and print them sorted "
-            "A->Z (by first letter), then by frequency descending for "
-            "words sharing the same first letter. Sorting is performed "
-            "entirely by a custom dual-key heap."
+            "Bir TXT dosyasındaki kelime frekanslarını sayar ve "
+            "A->Z (ilk harfe göre), aynı ilk harfe sahip kelimeler için "
+            "frekansa göre azalan sırada yazdırır. Sıralama tamamen "
+            "özel bir çift anahtarlı (dual-key) heap tarafından yapılır."
         )
     )
     parser.add_argument(
         "file",
         nargs="?",
-        help="path to the input .txt file",
+        help="girdi .txt dosyasının yolu",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="print the heap's array and tree state after every word",
+        help="her kelimeden sonra heap'in dizi ve ağaç durumunu yazdır",
     )
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="run the built-in Kocaeli/Konya/Van/... example from the "
-        "assignment instead of reading a file",
+        help="dosya okumak yerine ödevdeki hazır Kocaeli/Konya/Van/... "
+        "örneğini çalıştır",
     )
     args = parser.parse_args()
 
@@ -434,26 +441,26 @@ def main() -> None:
 
     filepath = args.file
     if not filepath:
-        filepath = input("Enter path to a .txt file: ").strip()
+        filepath = input("Bir .txt dosyasının yolunu girin: ").strip()
 
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             text = f.read()
     except OSError as exc:
-        print(f"Error: could not open '{filepath}': {exc}")
+        print(f"Hata: '{filepath}' açılamadı: {exc}")
         sys.exit(1)
 
     words = extract_words(text)
 
     if not words:
-        print("The file contains no words.")
+        print("Dosyada hiç kelime bulunamadı.")
         return
 
     heap = build_heap(words, debug=args.debug)
 
     if args.debug:
         print("=" * 60)
-        print("FINAL RESULT")
+        print("NİHAİ SONUÇ")
         print("=" * 60)
 
     print_results(heap)
